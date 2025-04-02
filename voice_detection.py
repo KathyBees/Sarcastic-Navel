@@ -5,15 +5,14 @@ import pyttsx3
 
 # === CONFIGURATION ===
 sarcasm_model_path = "./fold_4/checkpoint-291"
-llm_model = "gpt2"
+#llm_model_name = "microsoft/Phi-3-mini-4k-instruct"
 
-# === Load tokenizer and model ===
-tokenizer = AutoTokenizer.from_pretrained("roberta-large")  # load base tokenizer
+# Load sarcasm detection model and tokenizer
+sarcasm_tokenizer = AutoTokenizer.from_pretrained("roberta-base")
 sarcasm_model = AutoModelForSequenceClassification.from_pretrained(sarcasm_model_path)
 
-# Load LLM
-llm = pipeline("text-generation", model=llm_model)
-#llm = pipeline("text-generation", model="mistralai/Mistral-7B-Instruct-v0.1")
+llm_model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+pipe = pipeline("text-generation", model=llm_model_name)
 
 
 # Text-to-speech
@@ -23,28 +22,27 @@ tts = pyttsx3.init()
 def listen():
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
-        print(" Listening...")
+        print("Listening...")
         recognizer.adjust_for_ambient_noise(source)
         audio = recognizer.listen(source)
     try:
         text = recognizer.recognize_google(audio)
-        print(f" You said: {text}")
+        print(f"You said: {text}")
         return text
     except sr.UnknownValueError:
-        print(" Could not understand the audio.")
+        print("Could not understand audio.")
         return None
 
 # === Sarcasm detection ===
 def detect_sarcasm(text):
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
+    inputs = sarcasm_tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
 
     with torch.no_grad():
         logits = sarcasm_model(**inputs).logits
         probs = torch.softmax(logits, dim=1)
-        sarcasm_score = probs[0][1].item()  # 1 = sarcastic
+        sarcasm_score = probs[0][1].item()  # class 1 = sarcastic
         return sarcasm_score > 0.5, sarcasm_score
 
-# === LLM response generation ===
 def generate_response(text, sarcastic):
     prompt = (
         f"User: {text}\n"
@@ -52,31 +50,35 @@ def generate_response(text, sarcastic):
         f"Assistant:"
     )
 
-    response = llm(prompt, max_length=100, do_sample=True, top_k=50, top_p=0.95)[0]["generated_text"]
+    response = pipe(
+        prompt, 
+        max_new_tokens=100, 
+        do_sample=True,         # Enable sampling explicitly
+        temperature=0.7, 
+        top_p=0.9
+    )[0]["generated_text"]
 
-    # Clean extraction logic
+    # Extract assistant reply cleanly
     if "Assistant:" in response:
-        return response.split("Assistant:")[-1].strip()
-    else:
-        return response.strip()
+        response = response.split("Assistant:")[-1]
+    return response.strip()
+
 
 # === Speak the result ===
 def speak(text):
-    tts.setProperty('rate', 100)
+    tts.setProperty('rate', 120)
     tts.say(text)
     tts.runAndWait()
 
-# === Main ===
+# === Main Loop ===
 if __name__ == "__main__":
     while True:
         user_input = listen()
         if user_input:
             sarcastic, score = detect_sarcasm(user_input)
-            print(f" Sarcasm detected: {sarcastic} (confidence: {score:.2f})")
+            print(f"Sarcasm detected: {sarcastic} (confidence: {score:.2f})")
             response = generate_response(user_input, sarcastic)
-            print(f" Response: {response}")
+            print(f"Assistant: {response}")
             speak(response)
-            break  # Exit after a successful run
-
         else:
-            print(" Trying again...\n")
+            print("Trying again...\n")
