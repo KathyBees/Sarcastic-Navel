@@ -18,7 +18,7 @@ texts_train, texts_test, labels_train, labels_test = train_test_split(
 )
 
 # Tokenizer and model name
-model_name = "roberta-large"
+model_name = "roberta-base"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # Metric function
